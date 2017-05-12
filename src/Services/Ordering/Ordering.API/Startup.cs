@@ -13,6 +13,7 @@
     using Microsoft.AspNetCore.Builder;
     using Microsoft.AspNetCore.Hosting;
     using Microsoft.EntityFrameworkCore;
+    using Microsoft.eShopOnContainers.BuildingBlocks.EventBus;
     using Microsoft.eShopOnContainers.BuildingBlocks.EventBus.Abstractions;
     using Microsoft.eShopOnContainers.BuildingBlocks.EventBusRabbitMQ;
     using Microsoft.eShopOnContainers.BuildingBlocks.IntegrationEventLogEF;
@@ -60,7 +61,12 @@
 
             services.AddHealthChecks(checks =>
             {
-                checks.AddSqlCheck("OrderingDb", Configuration["ConnectionString"]);
+                var minutes = 1;
+                if (int.TryParse(Configuration["HealthCheck:Timeout"], out var minutesParsed))
+                {
+                    minutes = minutesParsed;
+                }
+                checks.AddSqlCheck("OrderingDb", Configuration["ConnectionString"], TimeSpan.FromMinutes(minutes));
             });
             
             services.AddEntityFrameworkSqlServer()
@@ -107,18 +113,19 @@
             var serviceProvider = services.BuildServiceProvider();
             services.AddTransient<IOrderingIntegrationEventService, OrderingIntegrationEventService>();
 
-            services.AddSingleton<IRabbitMQPersisterConnection>(sp =>
+            services.AddSingleton<IRabbitMQPersistentConnection>(sp =>
             {
-                var logger = sp.GetRequiredService<ILogger<DefaultRabbitMQPersisterConnection>>();
+                var logger = sp.GetRequiredService<ILogger<DefaultRabbitMQPersistentConnection>>();
 
                 var factory = new ConnectionFactory()
                 {
                     HostName = Configuration["EventBusConnection"]
                 };
 
-                return new DefaultRabbitMQPersisterConnection(factory, logger);
+                return new DefaultRabbitMQPersistentConnection(factory, logger);
             });
 
+            services.AddSingleton<IEventBusSubscriptionsManager, InMemoryEventBusSubscriptionsManager>();
             services.AddSingleton<IEventBus, EventBusRabbitMQ>();
 
             services.AddOptions();
@@ -140,8 +147,6 @@
             loggerFactory.AddDebug();
             
             app.UseCors("CorsPolicy");
-
-            app.UseFailingMiddleware();
 
             ConfigureAuth(app);
 
